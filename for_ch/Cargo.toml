@@ -1,0 +1,22 @@
+[package]
+name = "for_ch"
+version = "0.1.0"
+edition = "2018"
+authors = ["Xyzt Toe <584605539@qq.com>"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+keywords = [ "syntax", "iterator", "loop", "nested" ]
+documentation = "https://docs.rs/for_ch/"
+repository = "https://github.com/TOETOE55/for_ch"
+description = "to flatten nested for-loop"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = {version = "1.0", features = ["full", "parsing"] }

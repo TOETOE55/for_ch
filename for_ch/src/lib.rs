@@ -5,6 +5,62 @@ use syn::{
     parse_macro_input, Token,
 };
 
+/// A macro to flatten for-loop and if-let
+///
+/// while 
+/// 
+/// ```rust
+/// for x in iter;
+/// ...
+/// ```
+///
+/// would expend to
+///
+/// ```rust
+/// for x in iter {
+///     ...
+/// }
+/// ```
+/// 
+/// and
+/// 
+/// ```rust
+/// if let Some(x) = foo();
+/// ...
+/// ```
+///
+/// would expend to
+///
+/// ```rust
+/// if let Some(x) = foo() {
+///     ...
+/// }
+/// ```
+///
+/// ## Example
+/// 
+/// ```rust
+/// for_ch! {
+///     for x in 0..10; 
+///     for y in x..10; // you can add a label before `for`
+///     if let Some(z) = foo(x, y).await?;
+///     if x - y < z { continue; } // guard
+///     println!("x = {}, y = {}, z = {}", x, y, z);
+/// }
+/// ```
+/// 
+/// would expend to
+/// 
+/// ```rust
+/// for x in 0..10 {
+///     for y in x..10 {
+///         if let Some(z) = foo(x, y).await? {
+///             if x - y < z { continue; }
+///             println!("x = {}, y = {}, z = {}", x, y, z);
+///         }
+///     }
+/// }
+/// ```
 #[proc_macro]
 pub fn for_ch(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as ForCh);
@@ -14,8 +70,9 @@ pub fn for_ch(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let body = for_body(&input.stmts);
     let output = quote! {
-        {
+        loop {
             #body
+            break;
         }
     };
 
@@ -131,7 +188,7 @@ fn for_body(stmts: &[ForChItem]) -> proc_macro2::TokenStream {
                     let pat = &for_in.pat;
                     let iter = &for_in.iter;
                     quote! {
-                        #label for #pat = #iter {
+                        #label for #pat in #iter {
                             #rest
                         }
                     }
