@@ -1,6 +1,6 @@
 [package]
 name = "for_ch"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2018"
 authors = ["Xyzt Toe <584605539@qq.com>"]
 license = "MIT/Apache-2.0"

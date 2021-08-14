@@ -7,8 +7,8 @@ use syn::{
 
 /// A macro to flatten for-loop and if-let
 ///
-/// while 
-/// 
+/// while
+///
 /// ```rust
 /// for x in iter;
 /// ...
@@ -21,9 +21,9 @@ use syn::{
 ///     ...
 /// }
 /// ```
-/// 
+///
 /// and
-/// 
+///
 /// ```rust
 /// if let Some(x) = foo();
 /// ...
@@ -40,38 +40,41 @@ use syn::{
 /// and
 ///
 /// ```rust
-/// while let Some(x) = foo();
+/// if expr;
 /// ...
 /// ```
 ///
 /// would expend to
 ///
 /// ```rust
-/// while let Some(x) = foo() {
+/// if expr {
 ///     ...
 /// }
 /// ```
 ///
+///
+///
 /// ## Example
-/// 
+///
 /// ```rust
 /// for_ch! {
-///     for x in 0..10; 
+///     for x in 0..10;
 ///     for y in x..10; // you can add a label before `for`
 ///     if let Some(z) = foo(x, y).await?;
-///     if x - y < z { continue; } // guard
+///     if x - y < z; // guard
 ///     println!("x = {}, y = {}, z = {}", x, y, z);
 /// }
 /// ```
-/// 
+///
 /// would expend to
-/// 
+///
 /// ```rust
 /// for x in 0..10 {
 ///     for y in x..10 {
 ///         if let Some(z) = foo(x, y).await? {
-///             if x - y < z { continue; }
-///             println!("x = {}, y = {}, z = {}", x, y, z);
+///             if x - y < z {
+///                 println!("x = {}, y = {}, z = {}", x, y, z);
+///             }
 ///         }
 ///     }
 /// }
@@ -115,13 +118,10 @@ struct IfLet {
     _semi_tok: Token![;],
 }
 
-/// while let Some(x) = option;
-struct WhileLet {
-    label: Option<syn::Label>,
-    _while_tok: Token![while],
-    _let_tok: Token![let],
-    pat: syn::Pat,
-    _eq_tok: Token![=],
+/// if expr;
+
+struct IfGuard {
+    _if_tok: Token![if],
     expr: syn::Expr,
     _semi_tok: Token![;],
 }
@@ -129,7 +129,7 @@ struct WhileLet {
 enum ForChItem {
     Stmt(syn::Stmt),
     IfLet(IfLet),
-    WhileLet(WhileLet),
+    IfGuard(IfGuard),
     ForIn(ForIn),
 }
 
@@ -169,41 +169,31 @@ impl Parse for IfLet {
     }
 }
 
-impl Parse for WhileLet {
+impl Parse for IfGuard {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let label = if input.peek(syn::Lifetime) && input.peek2(Token![:]) {
-            Some(input.parse()?)
-        } else {
-            None
-        };
         Ok(Self {
-            label,
-            _while_tok: input.parse()?,
-            _let_tok: input.parse()?,
-            pat: input.parse()?,
-            _eq_tok: input.parse()?,
+            _if_tok: input.parse()?,
             expr: input.parse()?,
             _semi_tok: input.parse()?,
         })
     }
 }
 
-
 impl Parse for ForCh {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut stmts = vec![];
         while !input.is_empty() {
             let fork = input.fork();
-            if let Ok(if_let) = fork.parse::<IfLet>() {
+            if let Ok(if_guard) = fork.parse::<IfGuard>() {
                 input.advance_to(&fork);
-                stmts.push(ForChItem::IfLet(if_let));
+                stmts.push(ForChItem::IfGuard(if_guard));
                 continue;
             }
 
             let fork = input.fork();
-            if let Ok(while_let) = fork.parse::<WhileLet>() {
+            if let Ok(if_let) = fork.parse::<IfLet>() {
                 input.advance_to(&fork);
-                stmts.push(ForChItem::WhileLet(while_let));
+                stmts.push(ForChItem::IfLet(if_let));
                 continue;
             }
 
@@ -246,16 +236,14 @@ fn for_body(stmts: &[ForChItem]) -> proc_macro2::TokenStream {
                         }
                     }
                 }
-                ForChItem::WhileLet(while_let) => {
-                    let label = &while_let.label;
-                    let pat = &while_let.pat;
-                    let expr = &while_let.expr;
+                ForChItem::IfGuard(if_guard) => {
+                    let expr = &if_guard.expr;
                     quote! {
-                        #label while let #pat = #expr {
+                        if #expr {
                             #rest
                         }
                     }
-                },
+                }
             }
         }
         [] => proc_macro2::TokenStream::new(),

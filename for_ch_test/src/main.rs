@@ -5,7 +5,7 @@ fn main() {
         for x in 0..5;
         for y in 0..x;
         if let Some(z) = Some(2);
-        if x - y < z { continue; }
+        if x - y < z;
         println!("{:?}", (x, y));
     }
 }

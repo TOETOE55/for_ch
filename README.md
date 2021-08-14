@@ -11,7 +11,7 @@ for_ch! {
     for x in 0..10; 
     for y in x..10; // you can add a label before `for`
     if let Some(z) = foo(x, y).await?;
-    if x - y < z { continue; }
+    if x - y < z; // if guard
     println!("x = {}, y = {}, z = {}", x, y, z);
 }
 ```
@@ -22,8 +22,8 @@ would expend to
 for x in 0..10 {
     for y in x..10 {
         if let Some(z) = foo(x, y).await? {
-            if x - y < z { continue; }
-            println!("x = {}, y = {}, z = {}", x, y, z);
+                if x - y < z { println!("x = {}, y = {}, z = {}", x, y, z);
+             }
         }
     }
 }
