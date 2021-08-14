@@ -37,6 +37,21 @@ use syn::{
 /// }
 /// ```
 ///
+/// and
+///
+/// ```rust
+/// while let Some(x) = foo();
+/// ...
+/// ```
+///
+/// would expend to
+///
+/// ```rust
+/// while let Some(x) = foo() {
+///     ...
+/// }
+/// ```
+///
 /// ## Example
 /// 
 /// ```rust
@@ -80,7 +95,6 @@ pub fn for_ch(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 /// for x in xs;
-#[derive(Clone)]
 struct ForIn {
     label: Option<syn::Label>,
     _for_tok: Token![for],
@@ -101,9 +115,21 @@ struct IfLet {
     _semi_tok: Token![;],
 }
 
+/// while let Some(x) = option;
+struct WhileLet {
+    label: Option<syn::Label>,
+    _while_tok: Token![while],
+    _let_tok: Token![let],
+    pat: syn::Pat,
+    _eq_tok: Token![=],
+    expr: syn::Expr,
+    _semi_tok: Token![;],
+}
+
 enum ForChItem {
     Stmt(syn::Stmt),
     IfLet(IfLet),
+    WhileLet(WhileLet),
     ForIn(ForIn),
 }
 
@@ -143,6 +169,26 @@ impl Parse for IfLet {
     }
 }
 
+impl Parse for WhileLet {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let label = if input.peek(syn::Lifetime) && input.peek2(Token![:]) {
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        Ok(Self {
+            label,
+            _while_tok: input.parse()?,
+            _let_tok: input.parse()?,
+            pat: input.parse()?,
+            _eq_tok: input.parse()?,
+            expr: input.parse()?,
+            _semi_tok: input.parse()?,
+        })
+    }
+}
+
+
 impl Parse for ForCh {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut stmts = vec![];
@@ -151,6 +197,13 @@ impl Parse for ForCh {
             if let Ok(if_let) = fork.parse::<IfLet>() {
                 input.advance_to(&fork);
                 stmts.push(ForChItem::IfLet(if_let));
+                continue;
+            }
+
+            let fork = input.fork();
+            if let Ok(while_let) = fork.parse::<WhileLet>() {
+                input.advance_to(&fork);
+                stmts.push(ForChItem::WhileLet(while_let));
                 continue;
             }
 
@@ -193,6 +246,16 @@ fn for_body(stmts: &[ForChItem]) -> proc_macro2::TokenStream {
                         }
                     }
                 }
+                ForChItem::WhileLet(while_let) => {
+                    let label = &while_let.label;
+                    let pat = &while_let.pat;
+                    let expr = &while_let.expr;
+                    quote! {
+                        #label while let #pat = #expr {
+                            #rest
+                        }
+                    }
+                },
             }
         }
         [] => proc_macro2::TokenStream::new(),
