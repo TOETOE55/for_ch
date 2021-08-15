@@ -2,7 +2,9 @@ extern crate proc_macro;
 use quote::*;
 use syn::{
     parse::{discouraged::Speculative, Parse, ParseStream},
-    parse_macro_input, Token,
+    parse_macro_input,
+    punctuated::Punctuated,
+    Token,
 };
 
 /// A macro to flatten for-loop and if-let
@@ -10,14 +12,29 @@ use syn::{
 /// while
 ///
 /// ```rust
-/// for x in iter;
+/// 'label: for x in iter;
 /// ...
 /// ```
 ///
 /// would expend to
 ///
 /// ```rust
-/// for x in iter {
+/// 'label: for x in iter {
+///     ...
+/// }
+/// ```
+///
+/// and
+///
+/// ```rust
+/// for x in iter1, for y in iter2;
+/// ...
+/// ```
+///
+/// would expend to
+///
+/// ```rust
+/// for (x, y) in iter1.into_iter().zip(iter2) {
 ///     ...
 /// }
 /// ```
@@ -58,10 +75,14 @@ use syn::{
 ///
 /// ```rust
 /// for_ch! {
-///     for x in 0..10;
-///     for y in x..10; // you can add a label before `for`
-///     if let Some(z) = foo(x, y).await?;
-///     if x - y < z; // guard
+///     for x in 0..10;                         // forall x in 0..10,
+///     // you can add a label before `for`
+///     for y in x..10, for _ in 0..5;          // forall y in x..x+5,
+///     // zipping
+///     if let Some(z) = foo(x, y).await?;      // exists z. Some(z) = foo(x, y).await?
+///     // if let guard
+///     if x - y < z;                           // satisfies x - y < z
+///     // guard
 ///     println!("x = {}, y = {}, z = {}", x, y, z);
 /// }
 /// ```
@@ -70,7 +91,7 @@ use syn::{
 ///
 /// ```rust
 /// for x in 0..10 {
-///     for y in x..10 {
+///     for y in (x..10).zip(0..5) {
 ///         if let Some(z) = foo(x, y).await? {
 ///             if x - y < z {
 ///                 println!("x = {}, y = {}, z = {}", x, y, z);
@@ -97,16 +118,20 @@ pub fn for_ch(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(output)
 }
 
-/// for x in xs;
-struct ForIn {
-    label: Option<syn::Label>,
+/// for x in xs
+struct ForInItem {
     _for_tok: Token![for],
     pat: syn::Pat,
     _in_tok: Token![in],
     iter: syn::Expr,
-    _semi_tok: Token![;],
 }
 
+/// 'label: for x in xs | for y in ys | for z in zs ...;
+struct ForIn {
+    label: Option<syn::Label>,
+    items: Punctuated<ForInItem, Token![,]>,
+    _semi_tok: Token![;],
+}
 /// if let Some(x) = option;
 
 struct IfLet {
@@ -137,6 +162,17 @@ struct ForCh {
     stmts: Vec<ForChItem>,
 }
 
+impl Parse for ForInItem {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _for_tok: input.parse()?,
+            pat: input.parse()?,
+            _in_tok: input.parse()?,
+            iter: input.parse()?,
+        })
+    }
+}
+
 impl Parse for ForIn {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let label = if input.peek(syn::Lifetime) && input.peek2(Token![:]) {
@@ -145,15 +181,55 @@ impl Parse for ForIn {
             None
         };
 
+        let mut items = Punctuated::new();
+
+        // first item
+        items.push_value(input.parse()?);
+
+        // (| for_in_item)*
+        while !input.is_empty() && input.peek(Token![,]) && input.peek2(Token![for]) {
+            items.push_punct(input.parse()?);
+            items.push_value(input.parse()?);
+        }
+
         Ok(Self {
             label,
-            _for_tok: input.parse()?,
-            pat: input.parse()?,
-            _in_tok: input.parse()?,
-            iter: input.parse()?,
+            items,
             _semi_tok: input.parse()?,
         })
     }
+}
+
+impl ToTokens for ForIn {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let (pat, iter) = for_in_zippings(self.items.iter());
+
+        self.label.to_tokens(tokens);
+        quote!(for).to_tokens(tokens);
+        pat.to_tokens(tokens);
+        quote!(in).to_tokens(tokens);
+        iter.to_tokens(tokens);
+    }
+}
+
+fn for_in_zippings<'a>(
+    mut items: impl Iterator<Item = &'a ForInItem>,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    let (fst_pat, fst_iter) = if let Some(fst) = items.next() {
+        (&fst.pat, &fst.iter)
+    } else {
+        return Default::default();
+    };
+
+    let (snd_pat, snd_iter) = for_in_zippings(items);
+    if snd_pat.is_empty() || snd_iter.is_empty() {
+        return (quote! { #fst_pat }, quote! { #fst_iter });
+    }
+
+    (
+        quote! { (#fst_pat, #snd_pat) },
+        quote! { (#fst_iter).into_iter().zip(#snd_iter) },
+    )
 }
 
 impl Parse for IfLet {
@@ -227,11 +303,8 @@ fn for_body(stmts: &[ForChItem]) -> proc_macro2::TokenStream {
                     }
                 }
                 ForChItem::ForIn(for_in) => {
-                    let label = &for_in.label;
-                    let pat = &for_in.pat;
-                    let iter = &for_in.iter;
                     quote! {
-                        #label for #pat in #iter {
+                        #for_in {
                             #rest
                         }
                     }
