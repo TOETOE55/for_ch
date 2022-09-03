@@ -151,10 +151,35 @@ struct IfGuard {
     _semi_tok: Token![;],
 }
 
+/// if let Some(x) = option else { stmt };
+
+struct IfLetElse {
+    _if_tok: Token![if],
+    _let_tok: Token![let],
+    pat: syn::Pat,
+    _eq_tok: Token![=],
+    expr: syn::Expr,
+    _else_tok: Token![else],
+    block: syn::Block,
+    _semi_tok: Token![;],
+}
+
+/// if expr else { stmt };
+
+struct IfElse {
+    _if_tok: Token![if],
+    expr: syn::Expr,
+    _else_tok: Token![else],
+    block: syn::Block,
+    _semi_tok: Token![;],
+}
+
 enum ForChItem {
     Stmt(syn::Stmt),
     IfLet(IfLet),
     IfGuard(IfGuard),
+    IfLetElse(IfLetElse),
+    IfElse(IfElse),
     ForIn(ForIn),
 }
 
@@ -255,6 +280,33 @@ impl Parse for IfGuard {
     }
 }
 
+impl Parse for IfLetElse {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _if_tok: input.parse()?,
+            _let_tok: input.parse()?,
+            pat: input.parse()?,
+            _eq_tok: input.parse()?,
+            expr: input.parse()?,
+            _else_tok: input.parse()?,
+            block: input.parse()?,
+            _semi_tok: input.parse()?,
+        })
+    }
+}
+
+impl Parse for IfElse {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            _if_tok: input.parse()?,
+            expr: input.parse()?,
+            _else_tok: input.parse()?,
+            block: input.parse()?,
+            _semi_tok: input.parse()?,
+        })
+    }
+}
+
 impl Parse for ForCh {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut stmts = vec![];
@@ -271,6 +323,18 @@ impl Parse for ForCh {
                 input.advance_to(&fork);
                 stmts.push(ForChItem::IfLet(if_let));
                 continue;
+            }
+
+            let fork = input.fork();
+            if let Ok(if_else) = fork.parse::<IfElse>() {
+                input.advance_to(&fork);
+                stmts.push(ForChItem::IfElse(if_else));
+            }
+
+            let fork = input.fork();
+            if let Ok(if_let_else) = fork.parse::<IfLetElse>() {
+                input.advance_to(&fork);
+                stmts.push(ForChItem::IfLetElse(if_let_else));
             }
 
             let fork = input.fork();
@@ -315,6 +379,25 @@ fn for_body(stmts: &[ForChItem]) -> proc_macro2::TokenStream {
                         if #expr {
                             #rest
                         }
+                    }
+                }
+                ForChItem::IfLetElse(if_let_else) => {
+                    let pat = &if_let_else.pat;
+                    let expr = &if_let_else.expr;
+                    let block = &if_let_else.block;
+                    quote! {
+                        if let #pat = #expr {
+                            #rest
+                        } else #block
+                    }
+                }
+                ForChItem::IfElse(if_else) => {
+                    let expr = &if_else.expr;
+                    let block = &if_else.block;
+                    quote! {
+                        if #expr {
+                            #rest
+                        } else #block
                     }
                 }
             }
